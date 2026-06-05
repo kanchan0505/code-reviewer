@@ -1,13 +1,13 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import { parseDiff } from '@/lib/parseDiff'
 import { reviewCode } from '@/lib/aiReview'
-import { postReview } from '@/lib/postReview'
+import { getPRFiles, postGitHubReview } from '@/lib/github'
+import { db } from '@/lib/db'
 
 export async function POST(req) {
   console.log('🔔 Webhook received!')
 
   const rawBody = await req.text()
-
   const signature = req.headers.get('x-hub-signature-256') ?? ''
   const secret = process.env.GITHUB_WEBHOOK_SECRET
 
@@ -35,6 +35,22 @@ export async function POST(req) {
 
   console.log(`✅ Received GitHub event: ${event}`)
 
+  // handle app installation event — save to database
+  if (event === 'installation') {
+    if (payload.action === 'created') {
+      await db.installation.upsert({
+        where: { installationId: payload.installation.id },
+        update: {},
+        create: {
+          installationId: payload.installation.id,
+          owner: payload.installation.account.login,
+        },
+      })
+      console.log(`✅ Installation saved for ${payload.installation.account.login}`)
+    }
+    return new Response('OK', { status: 200 })
+  }
+
   if (event !== 'pull_request') {
     return new Response('Ignored', { status: 200 })
   }
@@ -57,31 +73,19 @@ export async function POST(req) {
 
   console.log('PR info:', prInfo)
 
-  await fetchPRDiff(prInfo)
+  await processPR(prInfo)
 
   return new Response('OK', { status: 200 })
 }
 
-async function fetchPRDiff(prInfo) {
-  const token = process.env.GITHUB_PAT
-
-  const res = await fetch(
-    `https://api.github.com/repos/${prInfo.owner}/${prInfo.repo}/pulls/${prInfo.prNumber}/files`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    }
+async function processPR(prInfo) {
+  // fetch files using installation token instead of PAT
+  const files = await getPRFiles(
+    prInfo.installationId,
+    prInfo.owner,
+    prInfo.repo,
+    prInfo.prNumber
   )
-
-  if (!res.ok) {
-    console.error('Failed to fetch PR files:', res.status, await res.text())
-    return
-  }
-
-  const files = await res.json()
 
   console.log('\n========= RAW DIFF =========\n')
 
@@ -92,7 +96,6 @@ async function fetchPRDiff(prInfo) {
     console.log(file.patch ?? '(no patch — binary or deleted file)')
 
     const parsedLines = parseDiff(file.patch)
-    console.log(`Parsed ${file.filename}:`, parsedLines)
 
     if (parsedLines.length > 0) {
       filesForReview.push({
@@ -104,11 +107,46 @@ async function fetchPRDiff(prInfo) {
 
   console.log('\n============================\n')
 
-  if (filesForReview.length > 0) {
-    const issues = await reviewCode(filesForReview)
-    console.log('\n🔍 AI Review Issues:\n', JSON.stringify(issues, null, 2))
-    await postReview(prInfo, issues)
-  } else {
+  if (filesForReview.length === 0) {
     console.log('No changed lines to review')
+    return
+  }
+
+  const issues = await reviewCode(filesForReview)
+  console.log('\n🔍 AI Review Issues:\n', JSON.stringify(issues, null, 2))
+
+  // post review using installation token
+  await postGitHubReview(
+    prInfo.installationId,
+    prInfo.owner,
+    prInfo.repo,
+    prInfo.prNumber,
+    prInfo.headSha,
+    issues
+  )
+
+  // save review and issues to database
+  const installation = await db.installation.findUnique({
+    where: { installationId: prInfo.installationId },
+  })
+
+  if (installation) {
+    await db.review.create({
+      data: {
+        installationId: installation.id,
+        repo: prInfo.repo,
+        prNumber: prInfo.prNumber,
+        prTitle: prInfo.prTitle,
+        issues: {
+          create: issues.map((issue) => ({
+            filename: issue.filename,
+            lineNumber: issue.lineNumber,
+            severity: issue.severity,
+            comment: issue.comment,
+          })),
+        },
+      },
+    })
+    console.log('✅ Review saved to database')
   }
 }
