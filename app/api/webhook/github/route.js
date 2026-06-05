@@ -1,11 +1,13 @@
 import { createHmac, timingSafeEqual } from 'crypto'
+import { parseDiff } from '@/lib/parseDiff'
+import { reviewCode } from '@/lib/aiReview'
+import { postReview } from '@/lib/postReview'
 
 export async function POST(req) {
-    console.log('🔔 Webhook received!')  // add this line
-  // read raw body as text BEFORE parsing json
+  console.log('🔔 Webhook received!')
+
   const rawBody = await req.text()
 
-  // verify github signature
   const signature = req.headers.get('x-hub-signature-256') ?? ''
   const secret = process.env.GITHUB_WEBHOOK_SECRET
 
@@ -28,13 +30,11 @@ export async function POST(req) {
     return new Response('Unauthorized', { status: 401 })
   }
 
-  // parse event type from header
   const event = req.headers.get('x-github-event')
   const payload = JSON.parse(rawBody)
 
   console.log(`✅ Received GitHub event: ${event}`)
 
-  // ignore everything except pull_request events
   if (event !== 'pull_request') {
     return new Response('Ignored', { status: 200 })
   }
@@ -42,12 +42,10 @@ export async function POST(req) {
   const action = payload.action
   console.log(`PR action: ${action}`)
 
-  // only care about opened or new commits pushed
   if (action !== 'opened' && action !== 'synchronize') {
     return new Response('Ignored', { status: 200 })
   }
 
-  // pull out everything we need
   const prInfo = {
     owner: payload.repository.owner.login,
     repo: payload.repository.name,
@@ -59,7 +57,6 @@ export async function POST(req) {
 
   console.log('PR info:', prInfo)
 
-  // fetch the diff and log it — week 1 goal
   await fetchPRDiff(prInfo)
 
   return new Response('OK', { status: 200 })
@@ -88,10 +85,30 @@ async function fetchPRDiff(prInfo) {
 
   console.log('\n========= RAW DIFF =========\n')
 
+  const filesForReview = []
+
   for (const file of files) {
     console.log(`\n--- File: ${file.filename} (${file.status}) ---`)
     console.log(file.patch ?? '(no patch — binary or deleted file)')
+
+    const parsedLines = parseDiff(file.patch)
+    console.log(`Parsed ${file.filename}:`, parsedLines)
+
+    if (parsedLines.length > 0) {
+      filesForReview.push({
+        filename: file.filename,
+        parsedLines,
+      })
+    }
   }
 
   console.log('\n============================\n')
+
+  if (filesForReview.length > 0) {
+    const issues = await reviewCode(filesForReview)
+    console.log('\n🔍 AI Review Issues:\n', JSON.stringify(issues, null, 2))
+    await postReview(prInfo, issues)
+  } else {
+    console.log('No changed lines to review')
+  }
 }
