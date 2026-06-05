@@ -35,12 +35,12 @@ export async function POST(req) {
 
   console.log(`✅ Received GitHub event: ${event}`)
 
-  // handle app installation event — save to database
+  // handle app installation event
   if (event === 'installation') {
     if (payload.action === 'created') {
       await db.installation.upsert({
         where: { installationId: payload.installation.id },
-        update: {},
+        update: { owner: payload.installation.account.login },
         create: {
           installationId: payload.installation.id,
           owner: payload.installation.account.login,
@@ -79,59 +79,72 @@ export async function POST(req) {
 }
 
 async function processPR(prInfo) {
-  // fetch files using installation token instead of PAT
-  const files = await getPRFiles(
-    prInfo.installationId,
-    prInfo.owner,
-    prInfo.repo,
-    prInfo.prNumber
-  )
+  try {
+    const files = await getPRFiles(
+      prInfo.installationId,
+      prInfo.owner,
+      prInfo.repo,
+      prInfo.prNumber
+    )
 
-  console.log('\n========= RAW DIFF =========\n')
+    console.log('\n========= RAW DIFF =========\n')
 
-  const filesForReview = []
+    const filesForReview = []
 
-  for (const file of files) {
-    console.log(`\n--- File: ${file.filename} (${file.status}) ---`)
-    console.log(file.patch ?? '(no patch — binary or deleted file)')
+    for (const file of files) {
+      console.log(`\n--- File: ${file.filename} (${file.status}) ---`)
+      console.log(file.patch ?? '(no patch — binary or deleted file)')
 
-    const parsedLines = parseDiff(file.patch)
+      const parsedLines = parseDiff(file.patch)
 
-    if (parsedLines.length > 0) {
-      filesForReview.push({
-        filename: file.filename,
-        parsedLines,
-      })
+      if (parsedLines.length > 0) {
+        filesForReview.push({
+          filename: file.filename,
+          parsedLines,
+        })
+      }
     }
-  }
 
-  console.log('\n============================\n')
+    console.log('\n============================\n')
 
-  if (filesForReview.length === 0) {
-    console.log('No changed lines to review')
-    return
-  }
+    if (filesForReview.length === 0) {
+      console.log('No changed lines to review')
+      return
+    }
 
-  const issues = await reviewCode(filesForReview)
-  console.log('\n🔍 AI Review Issues:\n', JSON.stringify(issues, null, 2))
+    const issues = await reviewCode(filesForReview)
+    console.log('\n🔍 AI Review Issues:\n', JSON.stringify(issues, null, 2))
 
-  // post review using installation token
-  await postGitHubReview(
-    prInfo.installationId,
-    prInfo.owner,
-    prInfo.repo,
-    prInfo.prNumber,
-    prInfo.headSha,
-    issues
-  )
+    await postGitHubReview(
+      prInfo.installationId,
+      prInfo.owner,
+      prInfo.repo,
+      prInfo.prNumber,
+      prInfo.headSha,
+      issues
+    )
 
-  // save review and issues to database
-  const installation = await db.installation.findUnique({
-    where: { installationId: prInfo.installationId },
-  })
+    // always upsert installation — creates it if missing, updates if exists
+    console.log('💾 Saving to database...')
+    
+    const user = await db.user.findFirst({
+  where: { username: prInfo.owner },
+})
 
-  if (installation) {
-    await db.review.create({
+   const installation = await db.installation.upsert({
+  where: { installationId: prInfo.installationId },
+  update: { owner: prInfo.owner },
+  create: {
+    installationId: prInfo.installationId,
+    owner: prInfo.owner,
+    // link to user if they exist in our database
+    ...(user ? { userId: user.id } : {}),
+  },
+})
+
+    console.log('✅ Installation upserted:', installation.id)
+
+    const review = await db.review.create({
       data: {
         installationId: installation.id,
         repo: prInfo.repo,
@@ -140,13 +153,18 @@ async function processPR(prInfo) {
         issues: {
           create: issues.map((issue) => ({
             filename: issue.filename,
-            lineNumber: issue.lineNumber,
-            severity: issue.severity,
-            comment: issue.comment,
+            lineNumber: issue.lineNumber || 0,
+            severity: issue.severity || 'suggestion',
+            comment: issue.comment || '',
           })),
         },
       },
     })
-    console.log('✅ Review saved to database')
+
+    console.log('✅ Review saved to database:', review.id)
+
+  } catch (err) {
+    // log the full error so we can see exactly what's failing
+    console.error('❌ Error in processPR:', err)
   }
 }
