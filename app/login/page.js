@@ -1,8 +1,9 @@
 'use client'
 
 import { signIn } from 'next-auth/react'
+import { Suspense } from 'react'
 
-export default function Login() {
+function LoginContent() {
   return (
     <div className="min-h-screen bg-background flex items-center justify-center">
       <div className="bg-card border border-border rounded-xl p-10 w-full max-w-sm text-center">
@@ -22,5 +23,13 @@ export default function Login() {
         </button>
       </div>
     </div>
+  )
+}
+
+export default function Login() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
   )
 }
