@@ -24,6 +24,8 @@ model Installation {
   user           User?    @relation(fields: [userId], references: [id])
   createdAt      DateTime @default(now())
   reviews        Review[]
+  commitReviews CommitReview[]
+
 }
 
 model Review {
@@ -36,6 +38,7 @@ model Review {
   status         String   @default("completed")
   createdAt      DateTime @default(now())
   issues         Issue[]
+  
 }
 
 model Issue {
@@ -46,5 +49,29 @@ model Issue {
   lineNumber Int
   severity  String
   comment   String
+  suggestedCode String?
   createdAt DateTime @default(now())
+}
+model CommitReview {
+  id             String        @id @default(cuid())
+  installationId String
+  installation   Installation  @relation(fields: [installationId], references: [id])
+  repo           String
+  branch         String
+  commitSha      String
+  commitMessage  String
+  createdAt      DateTime      @default(now())
+  issues         CommitIssue[]
+}
+
+model CommitIssue {
+  id             String       @id @default(cuid())
+  commitReviewId String
+  commitReview   CommitReview @relation(fields: [commitReviewId], references: [id])
+  filename       String
+  lineNumber     Int
+  severity       String
+  comment        String
+  suggestedCode  String?
+  createdAt      DateTime     @default(now())
 }

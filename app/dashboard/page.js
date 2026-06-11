@@ -27,30 +27,30 @@ export default async function Dashboard() {
   }
 
   await db.installation.updateMany({
-  where: {
-    owner: {
-      equals: user.username,
-      mode: 'insensitive',
+    where: {
+      owner: {
+        equals: user.username,
+        mode: 'insensitive',
+      },
+      userId: null,
     },
-    userId: null,
-  },
-  data: { userId: user.id },
-})
+    data: { userId: user.id },
+  })
 
-const installations = await db.installation.findMany({
-  where: {
-    owner: {
-      equals: user.username,
-      mode: 'insensitive',
+  const installations = await db.installation.findMany({
+    where: {
+      owner: {
+        equals: user.username,
+        mode: 'insensitive',
+      },
     },
-  },
-  include: {
-    reviews: {
-      include: { issues: true },
-      orderBy: { createdAt: 'desc' },
+    include: {
+      reviews: {
+        include: { issues: true },
+        orderBy: { createdAt: 'desc' },
+      },
     },
-  },
-})
+  })
 
   const allReviews = installations.flatMap((i) => i.reviews)
   const totalIssues = allReviews.flatMap((r) => r.issues).length
@@ -70,23 +70,37 @@ const installations = await db.installation.findMany({
               <span className="text-xl">🤖</span>
               <span className="font-semibold">ReviewBot</span>
             </Link>
-            <div className="flex items-center gap-3">
-              {session.user.image && (
-                <img
-                  src={session.user.image}
-                  alt={session.user.name}
-                  className="w-8 h-8 rounded-full"
-                />
-              )}
-              <span className="text-sm text-muted-foreground">
-                {session.user.name}
-              </span>
+            <div className="flex items-center gap-6">
               <Link
-                href="/api/auth/signout"
+                href="/dashboard"
+                className="text-sm text-foreground font-medium"
+              >
+                PR Reviews
+              </Link>
+              <Link
+                href="/dashboard/commits"
                 className="text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
-                Sign out
+                Commits
               </Link>
+              <div className="flex items-center gap-3">
+                {session.user.image && (
+                  <img
+                    src={session.user.image}
+                    alt={session.user.name}
+                    className="w-8 h-8 rounded-full"
+                  />
+                )}
+                <span className="text-sm text-muted-foreground">
+                  {session.user.name}
+                </span>
+                <Link
+                  href="/api/auth/signout"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Sign out
+                </Link>
+              </div>
             </div>
           </div>
         </nav>
@@ -152,23 +166,37 @@ const installations = await db.installation.findMany({
             <span className="text-xl">🤖</span>
             <span className="font-semibold">ReviewBot</span>
           </Link>
-          <div className="flex items-center gap-3">
-            {session.user.image && (
-              <img
-                src={session.user.image}
-                alt={session.user.name}
-                className="w-8 h-8 rounded-full"
-              />
-            )}
-            <span className="text-sm text-muted-foreground">
-              {session.user.name}
-            </span>
+          <div className="flex items-center gap-6">
             <Link
-              href="/api/auth/signout"
+              href="/dashboard"
+              className="text-sm text-foreground font-medium"
+            >
+              PR Reviews
+            </Link>
+            <Link
+              href="/dashboard/commits"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              Sign out
+              Commits
             </Link>
+            <div className="flex items-center gap-3">
+              {session.user.image && (
+                <img
+                  src={session.user.image}
+                  alt={session.user.name}
+                  className="w-8 h-8 rounded-full"
+                />
+              )}
+              <span className="text-sm text-muted-foreground">
+                {session.user.name}
+              </span>
+              <Link
+                href="/api/auth/signout"
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Sign out
+              </Link>
+            </div>
           </div>
         </div>
       </nav>
