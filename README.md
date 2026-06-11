@@ -1,4 +1,4 @@
-# AI Code Reviewer
+# AI Code Reviewer (ReviewBot)
 
 An intelligent automated code review system that integrates with GitHub to analyze pull request changes using AI and post inline review comments.
 
@@ -8,19 +8,19 @@ An intelligent automated code review system that integrates with GitHub to analy
 PR opened/synchronized
        │
        ▼
- GitHub Webhook
+ GitHub Webhook (with signature verification & deduplication)
        │
        ▼
- processPR() ──► fetch PR files via GitHub App installation token
+ processPR() ──► check rate limits ──► fetch PR files via App installation token
        │
        ▼
- parseDiff() ──► extract added lines per file
+ parseDiff() ──► extract added lines and ±8 lines of context
        │
        ▼
- reviewCode() ──► Groq (Llama 3.3 70B) code review
+ reviewCode() ──► Groq (Llama 3.3 70B) structured JSON review
        │
        ▼
- postGitHubReview() ──► inline comments on PR
+ postGitHubReview() ──► format & post inline review comments on GitHub
        │
        ▼
  store Review + Issues in PostgreSQL (Prisma)
@@ -28,110 +28,102 @@ PR opened/synchronized
 
 ## Features
 
-- **GitHub App integration** — authenticates via JWT and installation tokens; no PAT required
-- **Webhook-driven** — reviews PRs automatically on `opened` and `synchronize` events
-- **AI-powered reviews** — uses Llama 3.3 70B via Groq to identify bugs, warnings, and suggestions
-- **Inline PR comments** — posts specific, line-level review comments on GitHub
-- **Review dashboard** — tracks total reviews, issues found, and bugs caught per user
-- **Persistent storage** — all reviews and issues are stored in PostgreSQL via Prisma
+- **GitHub App integration** — authenticates natively via App installation tokens. No Personal Access Tokens (PATs) required.
+- **Webhook signature verification** — verifies payload hashes using `timingSafeEqual` and raw body text to secure endpoints.
+- **Idempotency** — dedupes events using `x-github-delivery` delivery headers.
+- **Rate limiting** — restricts reviews to a maximum of 10 reviews per hour per installation to control resource use.
+- **Robust error logs** — catches and logs process errors to the dashboard and posts helpful feedback to GitHub PRs.
+- **Contextual code reviews** — diff parser extracts added lines with ±8 lines of surrounding context for the LLM.
+- **Structured inline comments** — reviews are categorized by severity levels: Bug 🐛, Warning ⚠️, and Suggestion 💡.
+- **Review dashboard** — tracks reviews, repository connections, bugs caught, and lists recent activity with status badges.
+- **Detailed review page** — groups identified issues by file with line highlights and suggestions.
 
 ## Tech Stack
 
-- **Framework:** Next.js 16 (App Router)
-- **Language:** React 19
+- **Framework:** Next.js 16.2.7 (App Router)
+- **Language:** React 19.2.4
 - **AI:** Groq SDK — `llama-3.3-70b-versatile`
 - **Database ORM:** Prisma
 - **Database:** PostgreSQL
 - **Auth:** NextAuth.js (GitHub OAuth + GitHub App tokens)
-- **UI:** Tailwind CSS + shadcn/ui (Radix UI)
+- **UI:** Tailwind CSS + Radix UI (shadcn/ui)
 - **Client:** jsonwebtoken (GitHub App JWT signing)
 
 ## Prerequisites
 
 - Node.js >= 18
-- PostgreSQL
-- A [GitHub App](https://docs.github.com/en/apps/creating-github-apps/setting-up-a-github-app) with:
-  - **Permissions:** Pull requests (Read & Write), Commit statuses (Read), Contents (Read), Metadata (Read)
-  - **Events:** Pull request, Installation
+- PostgreSQL database instance
+- A [GitHub App](https://docs.github.com/en/apps/creating-github-apps/setting-up-a-github-app) configured with:
+  - **Permissions:** Pull requests (Read & Write), Commit statuses (Read), Contents (Read & Write), Metadata (Read)
+  - **Events:** Pull request, Push, Installation
 - A [Groq API key](https://console.groq.com/keys)
-- A GitHub Personal Access Token (PAT) with `repo` scope (used as fallback for posting reviews)
 
 ## Setup
 
-```bash
-git clone <repo-url>
-cd ai-code-reviewer
-npm install
-```
+1. **Clone the repository and install dependencies:**
+   ```bash
+   git clone <repo-url>
+   cd ai-code-reviewer
+   npm install
+   ```
 
-### Database
+2. **Configure Environment Variables:**
+   Copy the `.env.example` file to `.env` and fill in the details:
+   ```bash
+   cp .env.example .env
+   ```
 
-```bash
-npx prisma migrate dev --name init
-```
+3. **Initialize Database Schema:**
+   Apply database migrations:
+   ```bash
+   npx prisma migrate dev
+   ```
 
-### Environment Variables
+4. **Start Development Server:**
+   ```bash
+   npm run dev
+   ```
+   Visit `http://localhost:3000`.
 
-Create a `.env` file at the project root:
+## Local Development with GitHub Webhooks
 
-```env
-DATABASE_URL=postgresql://user:password@localhost:5432/ai_code_reviewer
+To test webhooks locally, you must expose your local dev server via a tunnel:
 
-GITHUB_CLIENT_ID=your_github_oauth_client_id
-GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
+1. **Start ngrok:**
+   ```bash
+   npx ngrok http 3000
+   ```
 
-GITHUB_APP_ID=your_github_app_id
-GITHUB_APP_PRIVATE_KEY_BASE64=base64_encoded_app_private_key
-GITHUB_PAT=your_github_personal_access_token
-
-GROQ_API_KEY=your_groq_api_key
-
-NEXTAUTH_URL=http://localhost:3000
-NEXTAUTH_SECRET=your_nextauth_secret
-
-AUTH_SECRET=your_auth_secret
-GITHUB_WEBHOOK_SECRET=your_webhook_secret
-AUTH_GROQ_API_KEY=your_app_owner_groq_key
-```
-
-### Run
-
-```bash
-npm run dev
-```
-
-Visit `http://localhost:3000`.
+2. **Configure Webhook URL in GitHub App:**
+   Set the Webhook URL in your GitHub App settings to:
+   ```
+   https://<your-ngrok-subdomain>.ngrok-free.app/api/webhook/github
+   ```
+   Ensure you set the Webhook Secret matching `GITHUB_WEBHOOK_SECRET` in your `.env`.
 
 ## Project Structure
 
 ```
 app/
   api/
+    apply-fix/route.js             — API to commit AI-suggested code fixes to GitHub
     auth/[...nextauth]/route.js    — NextAuth GitHub OAuth handler
-    webhook/github/route.js        — GitHub webhook receiver (PR events)
-  dashboard/page.js                — User review dashboard
-  page.js                          — Landing page
+    webhook/github/route.js        — GitHub webhook receiver (PR and Push events)
+  dashboard/
+    commits/                       — Commits review view grouped by repo
+    page.js                        — User review dashboard (recent PR reviews)
+  review/
+    [id]/page.js                   — Detailed view of a single review grouped by files
+  page.js                          — Redesigned landing page
 
 lib/
   db.js                            — Prisma client singleton
   github.js                        — GitHub App JWT, installation tokens, PR file fetch, review posting
-  parseDiff.js                     — Unified diff parser, extracts added lines
+  parseDiff.js                     — Unified diff parser, extracts added lines + context
   aiReview.js                      — Groq LLM code review logic
-  postReview.js                    — Post review comments to GitHub via PAT
 
 prisma/
   schema.prisma                    — User, Installation, Review, Issue models
-```
-
-## Deployment
-
-- Deploy to any Node.js host (Vercel, Railway, Render, Fly.io)
-- Ensure `NEXTAUTH_URL` points to your production domain
-- Configure GitHub App webhooks to point to `https://your-app.com/api/webhook/github`
-- Expose via tunnel (e.g., ngrok) during local development:
-
-```bash
-npx ngrok http 3000
 ```
 
 ## License

@@ -38,7 +38,8 @@ model Review {
   status         String   @default("completed")
   createdAt      DateTime @default(now())
   issues         Issue[]
-  
+  deliveryId     String?  @unique
+  errorMessage   String?
 }
 
 model Issue {
