@@ -1,6 +1,11 @@
 import Link from 'next/link'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/authOptions'
 
-export default function Home() {
+export default async function Home() {
+  const session = await getServerSession(authOptions)
+  const isLoggedIn = !!session
+
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col font-sans antialiased relative overflow-hidden">
       {/* Grid Pattern Background */}
@@ -28,12 +33,31 @@ export default function Home() {
             >
               How it works
             </Link>
-            <Link
-              href="/api/auth/signin"
-              className="text-sm bg-white text-slate-950 px-4 py-2 rounded-lg font-semibold hover:bg-slate-200 transition-colors"
-            >
-              Get started
-            </Link>
+
+            {isLoggedIn ? (
+              <div className="flex items-center gap-4">
+                <Link
+                  href="/dashboard"
+                  className="text-sm bg-white text-slate-950 px-4 py-2 rounded-lg font-semibold hover:bg-slate-200 transition-colors"
+                >
+                  Dashboard
+                </Link>
+                {session.user.image && (
+                  <img
+                    src={session.user.image}
+                    alt={session.user.name}
+                    className="w-8 h-8 rounded-full border border-slate-850"
+                  />
+                )}
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="text-sm bg-white text-slate-950 px-4 py-2 rounded-lg font-semibold hover:bg-slate-200 transition-colors"
+              >
+                Get started
+              </Link>
+            )}
           </div>
         </div>
       </nav>
@@ -55,12 +79,21 @@ export default function Home() {
             ReviewBot reviews your pull requests instantly — catching bugs, security vulnerabilities, and code smells on the line before they hit production.
           </p>
           <div className="flex flex-wrap items-center gap-4 pt-2">
-            <Link
-              href="/api/auth/signin"
-              className="bg-white text-slate-950 px-6 py-3 rounded-lg font-bold text-sm hover:bg-slate-200 transition-colors shadow-lg shadow-white/5"
-            >
-              Install on GitHub →
-            </Link>
+            {isLoggedIn ? (
+              <Link
+                href="/dashboard"
+                className="bg-white text-slate-950 px-6 py-3 rounded-lg font-bold text-sm hover:bg-slate-200 transition-colors shadow-lg shadow-white/5"
+              >
+                Go to Dashboard →
+              </Link>
+            ) : (
+              <Link
+                href="/login"
+                className="bg-white text-slate-950 px-6 py-3 rounded-lg font-bold text-sm hover:bg-slate-200 transition-colors shadow-lg shadow-white/5"
+              >
+                Install on GitHub →
+              </Link>
+            )}
             <Link
               href="#how-it-works"
               className="border border-slate-800 text-slate-300 hover:bg-slate-900 hover:text-white px-6 py-3 rounded-lg font-semibold text-sm transition-colors"
@@ -222,12 +255,21 @@ export default function Home() {
           Install ReviewBot on your repositories in 60 seconds. Free to get started.
         </p>
         <div className="pt-2">
-          <Link
-            href="/api/auth/signin"
-            className="bg-white text-slate-950 px-8 py-3.5 rounded-lg font-bold text-sm hover:bg-slate-200 transition-colors"
-          >
-            Install on GitHub →
-          </Link>
+          {isLoggedIn ? (
+            <Link
+              href="/dashboard"
+              className="bg-white text-slate-950 px-8 py-3.5 rounded-lg font-bold text-sm hover:bg-slate-200 transition-colors"
+            >
+              Go to Dashboard →
+            </Link>
+          ) : (
+            <Link
+              href="/login"
+              className="bg-white text-slate-950 px-8 py-3.5 rounded-lg font-bold text-sm hover:bg-slate-200 transition-colors"
+            >
+              Install on GitHub →
+            </Link>
+          )}
         </div>
       </section>
 
